@@ -1,5 +1,4 @@
 import io
-import re
 import pandas as pd
 import streamlit as st
 
@@ -75,7 +74,7 @@ if uploaded_file is not None:
       else:
         processed_df[col_name] = "未提供"
 
-    # 2. 執行醫生排序 (改用內建字串排序，免裝 pypinyin 套件)
+    # 2. 執行醫生排序 (改用內建字串排序，免裝額外套件)
     processed_df = processed_df.sort_values(by="執行醫生").reset_index(drop=True)
 
     # 3. 檢查開單醫生是否為心臟科醫師
@@ -154,7 +153,7 @@ if uploaded_file is not None:
             """
 
       for idx, row in df_data.iterrows():
-        # --- 診別邏輯：如果有「門」字就黑字，其他無意義數字/英文變紅字 ---
+        # --- 診別邏輯：如果有「門」字就黑字，否則紅字 ---
         zbie_val = str(row['診別'])
         if "門" in zbie_val:
             zbie_class = ""
@@ -219,8 +218,34 @@ if uploaded_file is not None:
 
     def to_excel(df_to_save):
       output = io.BytesIO()
+      # 使用 xlsxwriter 引擎來精確控制匯出樣式
       with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
         df_to_save.to_excel(writer, index=False, sheet_name="處理後報表")
+        
+        # 取得 xlsxwriter 的工作簿與工作表物件
+        workbook = writer.book
+        worksheet = writer.sheets["處理後報表"]
+        
+        # 定義紅色字體樣式
+        red_format = workbook.add_format({'font_color': 'red'})
+        
+        # 取得需要上色的欄位位置 (0-based 索引)
+        zbie_col_idx = df_to_save.columns.get_loc("診別")
+        date_col_idx = df_to_save.columns.get_loc("執行日期")
+        
+        # 逐列檢查並把紅色樣式寫入 Excel 檔案
+        for row_idx in range(len(df_to_save)):
+            excel_row = row_idx + 1  # 避開 Excel 的第一列標題列
+            
+            # 1. 診別紅字判斷 (沒有「門」字就套用紅色)
+            zbie_val = str(df_to_save.iloc[row_idx, zbie_col_idx])
+            if "門" not in zbie_val:
+                worksheet.write_string(excel_row, zbie_col_idx, zbie_val, red_format)
+                
+            # 2. 執行日期全面紅字
+            date_val = str(df_to_save.iloc[row_idx, date_col_idx])
+            worksheet.write_string(excel_row, date_col_idx, date_val, red_format)
+            
       return output.getvalue()
 
     excel_data = to_excel(export_df)
