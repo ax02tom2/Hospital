@@ -133,17 +133,26 @@ if uploaded_file is not None:
     processed_df["執行日期"] = processed_df["執行日期"].apply(remove_year)
 
     # ==========================================
-    # 5. 網頁上方：明確顯示各個執行醫生的數量
+    # 5. 網頁上方：明確顯示各個執行醫生的數量 (自訂放大樣式)
     # ==========================================
     st.markdown("### 📈 執行醫師工作量統計")
     
     doctor_counts = processed_df["執行醫生"].value_counts()
     
-    # 使用 Streamlit 的 columns 並排顯示每個醫師的數量看板
+    # 依醫師數量動態建立欄位
     metric_cols = st.columns(len(doctor_counts))
     for i, (doc, count) in enumerate(doctor_counts.items()):
         with metric_cols[i]:
-            st.metric(label=f"👨‍⚕️ {doc}", value=f"{count} 人次")
+            # 使用自訂 HTML 讓醫師名字與次數一樣大、一樣醒目
+            st.markdown(
+                f"""
+                <div style="background-color: #f0f2f6; padding: 20px; border-radius: 10px; text-align: center; box-shadow: 1px 1px 5px rgba(0,0,0,0.1);">
+                    <h2 style="margin: 0; color: #31333F;">👨‍⚕️ {doc}</h2>
+                    <h2 style="margin: 10px 0 0 0; color: #0068c9;">{count} 人次</h2>
+                </div>
+                """, 
+                unsafe_allow_html=True
+            )
             
     st.markdown("---")
 
@@ -159,83 +168,37 @@ if uploaded_file is not None:
         "> - 若開單醫生**不在左側儲存的心臟科醫師名單內**，姓名會以 **紅色字體** 顯示並加上警示。"
     )
 
-    # 自訂 HTML 表格渲染
+    # 自訂 HTML 表格渲染 (去除縮排避免變成 Markdown 程式碼區塊)
     def render_custom_table(df_data):
-      html = """
-            <style>
-                .report-table {
-                    width: 100%;
-                    border-collapse: collapse;
-                    font-family: sans-serif;
-                    font-size: 14px;
-                }
-                .report-table th, .report-table td {
-                    border: 1px solid #ddd;
-                    padding: 8px 12px;
-                    text-align: center;
-                }
-                .report-table th {
-                    background-color: #f0f2f6;
-                    color: #31333F;
-                }
-                .red-text {
-                    color: red;
-                    font-weight: bold;
-                }
-                .warning-badge {
-                    background-color: #ff4b4b;
-                    color: white;
-                    padding: 2px 6px;
-                    border-radius: 4px;
-                    font-size: 12px;
-                    font-weight: bold;
-                    margin-left: 5px;
-                }
-            </style>
-            <table class="report-table">
-                <thead>
-                    <tr>
-                        <th>項次</th>
-                        <th>診別</th>
-                        <th>病歷號</th>
-                        <th>姓名</th>
-                        <th>性別</th>
-                        <th>執行日期</th>
-                        <th>開單日期</th>
-                        <th>開單醫生</th>
-                        <th>執行醫生</th>
-                    </tr>
-                </thead>
-                <tbody>
-            """
+        html = '<div style="overflow-x: auto;">'
+        html += '<style>'
+        html += '.report-table { width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 14px; }'
+        html += '.report-table th, .report-table td { border: 1px solid #ddd; padding: 8px 12px; text-align: center; }'
+        html += '.report-table th { background-color: #f0f2f6; color: #31333F; }'
+        html += '.red-text { color: red; font-weight: bold; }'
+        html += '.warning-badge { background-color: #ff4b4b; color: white; padding: 2px 6px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 5px; }'
+        html += '</style>'
+        html += '<table class="report-table"><thead><tr>'
+        html += '<th>項次</th><th>診別</th><th>病歷號</th><th>姓名</th><th>性別</th><th>執行日期</th><th>開單日期</th><th>開單醫生</th><th>執行醫生</th>'
+        html += '</tr></thead><tbody>'
 
-      for idx, row in df_data.iterrows():
-        # --- 診別邏輯 ---
-        zbie_val = str(row['診別'])
-        zbie_class = "" if "門" in zbie_val else "red-text"
+        for idx, row in df_data.iterrows():
+            # --- 診別邏輯 ---
+            zbie_val = str(row['診別'])
+            zbie_class = "" if "門" in zbie_val else "red-text"
 
-        # --- 開單醫生邏輯：非心臟科變紅字 ---
-        doc_display = row["開單醫生"]
-        doc_class = ""
-        if not row["是否心臟科"]:
-          doc_class = "red-text"
-          doc_display = f"{doc_display} <span class='warning-badge'>⚠️ 非心臟科</span>"
+            # --- 開單醫生邏輯：非心臟科變紅字 ---
+            doc_display = row["開單醫生"]
+            doc_class = ""
+            if not row["是否心臟科"]:
+                doc_class = "red-text"
+                doc_display = f"{doc_display} <span class='warning-badge'>⚠️ 非心臟科</span>"
 
-        html += f"""
-                <tr>
-                    <td>{idx + 1}</td>
-                    <td class="{zbie_class}">{zbie_val}</td>
-                    <td>{row['病例號']}</td>
-                    <td>{row['姓名']}</td>
-                    <td>{row['性別']}</td>
-                    <td class="red-text">{row['執行日期']}</td>
-                    <td>{row['開單日期']}</td>
-                    <td class="{doc_class}">{doc_display}</td>
-                    <td><b>{row['執行醫生']}</b></td>
-                </tr>
-                """
-      html += "</tbody></table>"
-      return html
+            # 採用無換行的方式寫入，徹底避免 Streamlit 的程式碼方塊渲染問題
+            html += f'<tr><td>{idx + 1}</td><td class="{zbie_class}">{zbie_val}</td><td>{row["病例號"]}</td><td>{row["姓名"]}</td><td>{row["性別"]}</td><td class="red-text">{row["執行日期"]}</td><td>{row["開單日期"]}</td><td class="{doc_class}">{doc_display}</td><td><b>{row["執行醫生"]}</b></td></tr>'
+
+        html += '</tbody></table></div>'
+        return html
 
     st.markdown(render_custom_table(processed_df), unsafe_allow_html=True)
 
