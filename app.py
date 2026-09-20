@@ -1,4 +1,5 @@
 import io
+import re
 import pandas as pd
 import streamlit as st
 
@@ -15,15 +16,17 @@ st.write(
 # 側邊欄設定心臟科醫師名單
 st.sidebar.header("⚙️ 檢核設定")
 st.sidebar.subheader("❤️ 心臟科醫師名單設定")
-default_cardio_doctors = "謝尚勳, 鄭品容, 王士鴻, 尹玉聰, 蔡榮庭, 柯子翔, 鍾禎智, 劉如濟"
+default_cardio_doctors = "謝尚勳 鄭品容 王士鴻 尹玉聰 蔡榮庭 柯子翔 鍾禎智 劉如濟"
 cardio_doctors_input = st.sidebar.text_area(
-    "請輸入心臟科醫師姓名（用逗號或換行分隔）",
+    "請輸入心臟科醫師姓名（可用空格、逗號或換行分隔）",
     value=default_cardio_doctors,
-    help="系統會以此名單檢查開單醫生是否為心臟科醫師，若否則會加上顯著警示。",
+    help="系統會以此名單檢查開單醫生是否為心臟科醫師，若否則會以紅色字體標示。",
 )
+
+# 支援以空格、逗號或換行來切割醫師名單
 cardio_doctors = [
     d.strip()
-    for d in cardio_doctors_input.replace("\n", ",").split(",")
+    for d in re.split(r'[,\s]+', cardio_doctors_input)
     if d.strip()
 ]
 
@@ -74,19 +77,17 @@ if uploaded_file is not None:
       else:
         processed_df[col_name] = "未提供"
 
-    # 2. 執行醫生排序 (改用內建字串排序，免裝額外套件)
+    # 2. 執行醫生排序
     processed_df = processed_df.sort_values(by="執行醫生").reset_index(drop=True)
 
     # 3. 檢查開單醫生是否為心臟科醫師
     processed_df["是否心臟科"] = processed_df["開單醫生"].isin(cardio_doctors)
     
-    # 4. 處理「執行日期」去掉年份 (例如：2026/09/19 變成 09/19)
+    # 4. 處理「執行日期」去掉年份
     def remove_year(date_str):
         date_str = str(date_str).strip()
-        # 避免純文字讀取時帶有時間 (如 2026-09-19 00:00:00)，先截取日期部分
         if " " in date_str:
             date_str = date_str.split(" ")[0]
-        # 移除年份
         if len(date_str) >= 8 and (date_str[4] == "/" or date_str[4] == "-"):
             return date_str[5:]
         return date_str
@@ -98,9 +99,9 @@ if uploaded_file is not None:
     st.markdown(
         "> 💡 **說明**：\n"
         "> - **病歷號** 已完整保留包含 `0` 開頭的所有數字。\n"
-        "> - 診別若包含**「門」**字則顯示黑色；若為**無意義的英文/數字組合**，則以 **紅色字體** 顯示。\n"
+        "> - 診別若包含**「門」**字則顯示黑色；否則以 **紅色字體** 顯示。\n"
         "> - **執行日期** 已隱藏年份，並統一以 **紅色字體** 顯示。\n"
-        "> - 若開單醫生**不是心臟科醫師**，會加上 `⚠️ 非心臟科` 顯著標記。"
+        "> - 若開單醫生**不是心臟科醫師**，姓名會以 **紅色字體** 顯示並加上警示。"
     )
 
     # 自訂 HTML 表格渲染
@@ -133,6 +134,7 @@ if uploaded_file is not None:
                     border-radius: 4px;
                     font-size: 12px;
                     font-weight: bold;
+                    margin-left: 5px;
                 }
             </style>
             <table class="report-table">
@@ -153,17 +155,16 @@ if uploaded_file is not None:
             """
 
       for idx, row in df_data.iterrows():
-        # --- 診別邏輯：如果有「門」字就黑字，否則紅字 ---
+        # --- 診別邏輯 ---
         zbie_val = str(row['診別'])
-        if "門" in zbie_val:
-            zbie_class = ""
-        else:
-            zbie_class = "red-text"
+        zbie_class = "" if "門" in zbie_val else "red-text"
 
-        # --- 開單醫生：若非心臟科加上警告標籤 ---
+        # --- 開單醫生邏輯：非心臟科變紅字 ---
         doc_display = row["開單醫生"]
+        doc_class = ""
         if not row["是否心臟科"]:
-          doc_display = f"{doc_display} <span class='warning-badge'>⚠️ 非心臟科需更改</span>"
+          doc_class = "red-text"
+          doc_display = f"{doc_display} <span class='warning-badge'>⚠️ 非心臟科</span>"
 
         html += f"""
                 <tr>
@@ -174,7 +175,7 @@ if uploaded_file is not None:
                     <td>{row['性別']}</td>
                     <td class="red-text">{row['執行日期']}</td>
                     <td>{row['開單日期']}</td>
-                    <td>{doc_display}</td>
+                    <td class="{doc_class}">{doc_display}</td>
                     <td><b>{row['執行醫生']}</b></td>
                 </tr>
                 """
@@ -195,7 +196,6 @@ if uploaded_file is not None:
     col1, col2 = st.columns([1, 2])
     with col1:
       st.dataframe(doctor_counts, use_container_width=True)
-
     with col2:
       st.bar_chart(doctor_counts.set_index("執行醫生"))
 
@@ -218,24 +218,23 @@ if uploaded_file is not None:
 
     def to_excel(df_to_save):
       output = io.BytesIO()
-      # 使用 xlsxwriter 引擎來精確控制匯出樣式
       with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
         df_to_save.to_excel(writer, index=False, sheet_name="處理後報表")
         
-        # 取得 xlsxwriter 的工作簿與工作表物件
         workbook = writer.book
         worksheet = writer.sheets["處理後報表"]
         
         # 定義紅色字體樣式
         red_format = workbook.add_format({'font_color': 'red'})
         
-        # 取得需要上色的欄位位置 (0-based 索引)
+        # 取得需要判斷欄位的位置
         zbie_col_idx = df_to_save.columns.get_loc("診別")
         date_col_idx = df_to_save.columns.get_loc("執行日期")
+        doc_col_idx = df_to_save.columns.get_loc("開單醫生")
         
-        # 逐列檢查並把紅色樣式寫入 Excel 檔案
+        # 將紅色樣式寫入 Excel
         for row_idx in range(len(df_to_save)):
-            excel_row = row_idx + 1  # 避開 Excel 的第一列標題列
+            excel_row = row_idx + 1 
             
             # 1. 診別紅字判斷 (沒有「門」字就套用紅色)
             zbie_val = str(df_to_save.iloc[row_idx, zbie_col_idx])
@@ -245,6 +244,11 @@ if uploaded_file is not None:
             # 2. 執行日期全面紅字
             date_val = str(df_to_save.iloc[row_idx, date_col_idx])
             worksheet.write_string(excel_row, date_col_idx, date_val, red_format)
+            
+            # 3. 開單醫生紅字判斷 (不在心臟科名單內就套用紅色)
+            doc_val = str(df_to_save.iloc[row_idx, doc_col_idx])
+            if doc_val not in cardio_doctors:
+                worksheet.write_string(excel_row, doc_col_idx, doc_val, red_format)
             
       return output.getvalue()
 
