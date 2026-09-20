@@ -132,7 +132,24 @@ if uploaded_file is not None:
         
     processed_df["執行日期"] = processed_df["執行日期"].apply(remove_year)
 
-    # 顯示主表格
+    # ==========================================
+    # 5. 網頁上方：明確顯示各個執行醫生的數量
+    # ==========================================
+    st.markdown("### 📈 執行醫師工作量統計")
+    
+    doctor_counts = processed_df["執行醫生"].value_counts()
+    
+    # 使用 Streamlit 的 columns 並排顯示每個醫師的數量看板
+    metric_cols = st.columns(len(doctor_counts))
+    for i, (doc, count) in enumerate(doctor_counts.items()):
+        with metric_cols[i]:
+            st.metric(label=f"👨‍⚕️ {doc}", value=f"{count} 人次")
+            
+    st.markdown("---")
+
+    # ==========================================
+    # 6. 網頁顯示：主表格預覽
+    # ==========================================
     st.markdown("### 📊 處理後的排程報表預覽")
     st.markdown(
         "> 💡 **說明**：\n"
@@ -222,22 +239,10 @@ if uploaded_file is not None:
 
     st.markdown(render_custom_table(processed_df), unsafe_allow_html=True)
 
-    # 5. 各個執行醫生數量統計
-    st.markdown("---")
-    st.markdown("### 📈 各執行醫生工作量統計")
 
-    doctor_counts = (
-        processed_df["執行醫生"].value_counts().reset_index()
-    )
-    doctor_counts.columns = ["執行醫生", "執行人次"]
-
-    col1, col2 = st.columns([1, 2])
-    with col1:
-      st.dataframe(doctor_counts, use_container_width=True)
-    with col2:
-      st.bar_chart(doctor_counts.set_index("執行醫生"))
-
-    # 6. 匯出下載功能
+    # ==========================================
+    # 7. 匯出下載功能 (純淨報表，不含統計數量)
+    # ==========================================
     st.markdown("---")
     st.markdown("### 💾 匯出處理後報表")
 
