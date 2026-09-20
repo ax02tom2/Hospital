@@ -1,5 +1,4 @@
 import io
-import re
 import os
 import json
 import pandas as pd
@@ -40,21 +39,25 @@ if "cardio_doctors" not in st.session_state:
 
 # 側邊欄設定心臟科醫師名單
 st.sidebar.header("⚙️ 檢核設定")
-st.sidebar.subheader("❤️ 心臟科醫師名單設定")
+st.sidebar.subheader("❤️ 心臟科醫師名單")
+st.sidebar.write("請直接在下方表格編輯、刪除或捲動到底部新增醫師：")
 
-# 顯示目前的醫師名單字串
-current_doctors_str = " ".join(st.session_state.cardio_doctors)
-edited_doctors_str = st.sidebar.text_area(
-    "請輸入心臟科醫師姓名（可用空格、逗號或換行分隔）",
-    value=current_doctors_str,
-    help="系統會以此名單檢查開單醫生是否為心臟科醫師。修改後請點選下方按鈕儲存。",
+# 建立供表格編輯用的 DataFrame
+df_doctors = pd.DataFrame({"醫師姓名": st.session_state.cardio_doctors})
+
+# 使用互動式表格 (num_rows="dynamic" 允許使用者新增或刪除列)
+edited_df = st.sidebar.data_editor(
+    df_doctors,
+    num_rows="dynamic",
+    use_container_width=True,
+    hide_index=True
 )
 
 if st.sidebar.button("💾 儲存醫師名單"):
-    # 解析使用者輸入的字串，支援逗號、換行與空格
-    new_list = [d.strip() for d in re.split(r'[,\s]+', edited_doctors_str) if d.strip()]
+    # 從編輯後的表格提取名單，去除空白與重複項目
+    new_list = edited_df["醫師姓名"].dropna().astype(str).str.strip().tolist()
+    new_list = [name for name in new_list if name] # 排除空字串
     
-    # 去除重複的名字並保持原順序
     seen = set()
     new_list_unique = [x for x in new_list if not (x in seen or seen.add(x))]
     
