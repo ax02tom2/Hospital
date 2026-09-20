@@ -1,4 +1,5 @@
 import io
+import re
 import os
 import json
 import pandas as pd
@@ -11,7 +12,7 @@ st.set_page_config(
 
 st.title("📋 醫療排程報表自動化處理與檢核系統")
 st.write(
-    "請上傳您的排程報表 Excel 檔案（支援 .xls / .xlsx），系統將自動過濾欄位、依照筆畫排序執行醫師、檢查門診/床號與心臟科醫師，並提供數量統計。"
+    "請上傳您的排程報表 Excel 檔案（支援 .xls / .xlsx），系統將自動過濾欄位、依照姓氏筆畫排序執行醫師、檢查門診/床號與心臟科醫師，並提供數量統計。"
 )
 
 # --- 醫師名單記憶功能 ---
@@ -45,7 +46,6 @@ st.sidebar.write("請直接在下方表格編輯、刪除或捲動到底部新�
 # 建立供表格編輯用的 DataFrame
 df_doctors = pd.DataFrame({"醫師姓名": st.session_state.cardio_doctors})
 
-# 使用互動式表格 (num_rows="dynamic" 允許使用者新增或刪除列)
 edited_df = st.sidebar.data_editor(
     df_doctors,
     num_rows="dynamic",
@@ -54,19 +54,16 @@ edited_df = st.sidebar.data_editor(
 )
 
 if st.sidebar.button("💾 儲存醫師名單"):
-    # 從編輯後的表格提取名單，去除空白與重複項目
     new_list = edited_df["醫師姓名"].dropna().astype(str).str.strip().tolist()
-    new_list = [name for name in new_list if name] # 排除空字串
+    new_list = [name for name in new_list if name]
     
     seen = set()
     new_list_unique = [x for x in new_list if not (x in seen or seen.add(x))]
     
-    # 更新系統狀態並存檔
     st.session_state.cardio_doctors = new_list_unique
     save_doctors(new_list_unique)
     st.sidebar.success("✅ 名單已成功儲存！下次開啟將自動載入。")
 
-# 正式提供比對的醫師名單
 cardio_doctors = st.session_state.cardio_doctors
 
 st.sidebar.markdown("---")
@@ -84,7 +81,6 @@ if uploaded_file is not None:
     else:
       df = pd.read_excel(uploaded_file, dtype=str)
 
-    # 將空值補為空字串，避免出現 nan
     df = df.fillna("")
 
     st.success(
@@ -118,8 +114,27 @@ if uploaded_file is not None:
       else:
         processed_df[col_name] = "未提供"
 
-    # 2. 執行醫生排序
-    processed_df = processed_df.sort_values(by="執行醫生").reset_index(drop=True)
+    # ==========================================
+    # 2. 執行醫生依照「姓氏筆畫由少到多」排序
+    # ==========================================
+    stroke_map = {
+        '丁': 2, '卜': 2, '于': 3, '尤': 4, '方': 4, '毛': 4, '王': 4, '田': 5, '白': 5, '石': 5, 
+        '朱': 6, '江': 6, '何': 7, '呂': 7, '宋': 7, '李': 7, '吳': 7, '沈': 7, '汪': 7, '周': 8, 
+        '林': 8, '邱': 8, '金': 8, '侯': 9, '柯': 9, '洪': 9, '范': 9, '孫': 10, '高': 10, '張': 11, 
+        '梁': 11, '許': 11, '郭': 11, '陳': 16, '黃': 12, '彭': 12, '曾': 12, '游': 12, '楊': 13, 
+        '葉': 13, '廖': 14, '趙': 14, '劉': 15, '鄭': 19, '賴': 16, '謝': 17, '韓': 17, '簡': 18, 
+        '魏': 18, '羅': 19, '蘇': 19, '鍾': 17
+    }
+
+    def get_stroke_count(name):
+        if not isinstance(name, str) or not name.strip():
+            return 99
+        first_char = name.strip()[0]
+        return stroke_map.get(first_char, 15) # 若無對照預設給 15 筆畫
+
+    processed_df["筆畫數"] = processed_df["執行醫生"].apply(get_stroke_count)
+    # 依照筆畫數由少到多排序，若筆畫相同則依名字次要順序排序
+    processed_df = processed_df.sort_values(by=["筆畫數", "執行醫生"]).reset_index(drop=True)
 
     # 3. 檢查開單醫生是否為心臟科醫師
     processed_df["是否心臟科"] = processed_df["開單醫生"].isin(cardio_doctors)
@@ -136,17 +151,15 @@ if uploaded_file is not None:
     processed_df["執行日期"] = processed_df["執行日期"].apply(remove_year)
 
     # ==========================================
-    # 5. 網頁上方：明確顯示各個執行醫生的數量 (自訂放大樣式)
+    # 5. 網頁上方：明確顯示各個執行醫生的數量
     # ==========================================
     st.markdown("### 📈 執行醫師工作量統計")
     
     doctor_counts = processed_df["執行醫生"].value_counts()
     
-    # 依醫師數量動態建立欄位
-    metric_cols = st.columns(len(doctor_counts))
+    metric_cols = st.columns(len(doctor_counts)) if len(doctor_counts) > 0 else st.columns(1)
     for i, (doc, count) in enumerate(doctor_counts.items()):
         with metric_cols[i]:
-            # 使用自訂 HTML 讓醫師名字與次數一樣大、一樣醒目
             st.markdown(
                 f"""
                 <div style="background-color: #f0f2f6; padding: 20px; border-radius: 10px; text-align: center; box-shadow: 1px 1px 5px rgba(0,0,0,0.1);">
@@ -165,13 +178,13 @@ if uploaded_file is not None:
     st.markdown("### 📊 處理後的排程報表預覽")
     st.markdown(
         "> 💡 **說明**：\n"
+        "> - **執行醫師** 已自動依照姓氏筆畫由少到多排序。\n"
         "> - **病歷號** 已完整保留包含 `0` 開頭的所有數字。\n"
         "> - 診別若包含**「門」**字則顯示黑色；否則以 **紅色字體** 顯示。\n"
         "> - **執行日期** 已隱藏年份，並統一以 **紅色字體** 顯示。\n"
         "> - 若開單醫生**不在左側儲存的心臟科醫師名單內**，姓名會以 **紅色字體** 顯示並加上警示。"
     )
 
-    # 自訂 HTML 表格渲染 (去除縮排避免變成 Markdown 程式碼區塊)
     def render_custom_table(df_data):
         html = '<div style="overflow-x: auto;">'
         html += '<style>'
@@ -186,18 +199,15 @@ if uploaded_file is not None:
         html += '</tr></thead><tbody>'
 
         for idx, row in df_data.iterrows():
-            # --- 診別邏輯 ---
             zbie_val = str(row['診別'])
             zbie_class = "" if "門" in zbie_val else "red-text"
 
-            # --- 開單醫生邏輯：非心臟科變紅字 ---
             doc_display = row["開單醫生"]
             doc_class = ""
             if not row["是否心臟科"]:
                 doc_class = "red-text"
                 doc_display = f"{doc_display} <span class='warning-badge'>⚠️ 非心臟科</span>"
 
-            # 採用無換行的方式寫入，徹底避免 Streamlit 的程式碼方塊渲染問題
             html += f'<tr><td>{idx + 1}</td><td class="{zbie_class}">{zbie_val}</td><td>{row["病例號"]}</td><td>{row["姓名"]}</td><td>{row["性別"]}</td><td class="red-text">{row["執行日期"]}</td><td>{row["開單日期"]}</td><td class="{doc_class}">{doc_display}</td><td><b>{row["執行醫生"]}</b></td></tr>'
 
         html += '</tbody></table></div>'
@@ -233,28 +243,22 @@ if uploaded_file is not None:
         workbook = writer.book
         worksheet = writer.sheets["處理後報表"]
         
-        # 定義紅色字體樣式
         red_format = workbook.add_format({'font_color': 'red'})
         
-        # 取得需要判斷欄位的位置
         zbie_col_idx = df_to_save.columns.get_loc("診別")
         date_col_idx = df_to_save.columns.get_loc("執行日期")
         doc_col_idx = df_to_save.columns.get_loc("開單醫生")
         
-        # 將紅色樣式寫入 Excel
         for row_idx in range(len(df_to_save)):
             excel_row = row_idx + 1 
             
-            # 1. 診別紅字判斷 (沒有「門」字就套用紅色)
             zbie_val = str(df_to_save.iloc[row_idx, zbie_col_idx])
             if "門" not in zbie_val:
                 worksheet.write_string(excel_row, zbie_col_idx, zbie_val, red_format)
                 
-            # 2. 執行日期全面紅字
             date_val = str(df_to_save.iloc[row_idx, date_col_idx])
             worksheet.write_string(excel_row, date_col_idx, date_val, red_format)
             
-            # 3. 開單醫生紅字判斷 (不在心臟科名單內就套用紅色)
             doc_val = str(df_to_save.iloc[row_idx, doc_col_idx])
             if doc_val not in cardio_doctors:
                 worksheet.write_string(excel_row, doc_col_idx, doc_val, red_format)
