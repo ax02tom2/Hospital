@@ -2,6 +2,7 @@ import io
 import re
 import os
 import json
+import base64
 import pandas as pd
 import streamlit as st
 
@@ -9,6 +10,45 @@ import streamlit as st
 st.set_page_config(
     page_title="醫療排程報表處理小幫手", page_icon="📋", layout="wide"
 )
+
+# ==========================================
+# 🖼️ 自訂桌布功能與 CSS 樣式注入
+# ==========================================
+st.sidebar.header("🖼️ 網頁桌布設定")
+st.sidebar.write("上傳您的「塔瑪鴿子」或其他喜歡的桌布：")
+bg_upload = st.sidebar.file_uploader("選擇背景圖片 (JPG/PNG)", type=["png", "jpg", "jpeg"])
+
+if bg_upload is not None:
+    # 將圖片轉為 Base64 以嵌入 CSS
+    encoded_string = base64.b64encode(bg_upload.read()).decode()
+    bg_ext = bg_upload.name.split('.')[-1]
+    
+    st.markdown(
+        f"""
+        <style>
+        /* 替換整個網頁的背景 */
+        .stApp {{
+            background-image: url(data:image/{bg_ext};base64,{encoded_string});
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+        }}
+        /* 為了避免桌布太花讓字看不清楚，幫主要內容區塊加上半透明底色與圓角 */
+        .block-container {{
+            background-color: rgba(255, 255, 255, 0.90);
+            padding: 2rem !important;
+            border-radius: 15px;
+            box-shadow: 0px 4px 15px rgba(0,0,0,0.1);
+            margin-top: 2rem;
+        }}
+        /* 隱藏預設的頂部裝飾線條 */
+        header[data-testid="stHeader"] {{
+            background: transparent;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
 
 st.title("📋 醫療排程報表自動化處理與檢核系統")
 st.write(
@@ -20,7 +60,6 @@ DOCTORS_FILE = "doctors_list.json"
 DEFAULT_DOCTORS = ["謝尚勳", "鄭品容", "王士鴻", "尹玉聰", "蔡榮庭", "柯子翔", "鍾禎智", "劉如濟"]
 
 def load_doctors():
-    """從檔案讀取醫師名單，若檔案不存在則回傳預設名單"""
     if os.path.exists(DOCTORS_FILE):
         try:
             with open(DOCTORS_FILE, "r", encoding="utf-8") as f:
@@ -30,20 +69,17 @@ def load_doctors():
     return DEFAULT_DOCTORS
 
 def save_doctors(doctors_list):
-    """將醫師名單存入檔案"""
     with open(DOCTORS_FILE, "w", encoding="utf-8") as f:
         json.dump(doctors_list, f, ensure_ascii=False)
 
-# 初始化 session state
 if "cardio_doctors" not in st.session_state:
     st.session_state.cardio_doctors = load_doctors()
 
-# 側邊欄設定心臟科醫師名單
+st.sidebar.markdown("---")
 st.sidebar.header("⚙️ 檢核設定")
 st.sidebar.subheader("❤️ 心臟科醫師名單")
 st.sidebar.write("請直接在下方表格編輯、刪除或捲動到底部新增醫師：")
 
-# 建立供表格編輯用的 DataFrame
 df_doctors = pd.DataFrame({"醫師姓名": st.session_state.cardio_doctors})
 
 edited_df = st.sidebar.data_editor(
@@ -65,7 +101,6 @@ if st.sidebar.button("💾 儲存醫師名單"):
     st.sidebar.success("✅ 名單已成功儲存！下次開啟將自動載入。")
 
 cardio_doctors = st.session_state.cardio_doctors
-
 st.sidebar.markdown("---")
 
 # 檔案上傳區塊
@@ -75,17 +110,13 @@ uploaded_file = st.file_uploader(
 
 if uploaded_file is not None:
   try:
-    # 讀取 Excel 檔案：加上 dtype=str 強制以純文字讀取，保留病歷號前面所有的 0
     if uploaded_file.name.endswith(".xls"):
       df = pd.read_excel(uploaded_file, engine="xlrd", dtype=str)
     else:
       df = pd.read_excel(uploaded_file, dtype=str)
 
     df = df.fillna("")
-
-    st.success(
-        f"✅ 成功載入檔案：**{uploaded_file.name}** (共 {len(df)} 筆資料)"
-    )
+    st.success(f"✅ 成功載入檔案：**{uploaded_file.name}** (共 {len(df)} 筆資料)")
 
     # 1. 欄位保留與對應
     target_columns_map = {
@@ -93,18 +124,10 @@ if uploaded_file is not None:
         "病例號": "病歷號",
         "姓名": "姓名",
         "性別": "性別",
-        "執行日期": (
-            "執行起始日期"
-            if "執行起始日期" in df.columns
-            else df.columns[0]
-        ),
+        "執行日期": ("執行起始日期" if "執行起始日期" in df.columns else df.columns[0]),
         "開單日期": "開單日" if "開單日" in df.columns else df.columns[0],
         "開單醫生": "開單醫師" if "開單醫師" in df.columns else df.columns[0],
-        "執行醫生": (
-            "操作醫師"
-            if "操作醫師" in df.columns
-            else ("預設執行醫師" if "預設執行醫師" in df.columns else df.columns[0])
-        ),
+        "執行醫生": ("操作醫師" if "操作醫師" in df.columns else ("預設執行醫師" if "預設執行醫師" in df.columns else df.columns[0])),
     }
 
     processed_df = pd.DataFrame()
@@ -117,7 +140,6 @@ if uploaded_file is not None:
     # ==========================================
     # 2. 執行醫生依照「姓氏筆畫由少到多」排序
     # ==========================================
-    # 擴充版百家姓筆畫對照表
     stroke_map = {
         '一': 1, '乙': 1,
         '丁': 2, '卜': 2, '刁': 2, '七': 2, '乃': 2,
@@ -147,11 +169,9 @@ if uploaded_file is not None:
         if not isinstance(name, str) or not name.strip():
             return 999
         first_char = name.strip()[0]
-        # 若字典找不到，給予 99 筆畫，強制排在名單最後面
         return stroke_map.get(first_char, 99) 
 
     processed_df["筆畫數"] = processed_df["執行醫生"].apply(get_stroke_count)
-    # 依照筆畫數由少到多排序，若筆畫相同則依名字次要順序排序
     processed_df = processed_df.sort_values(by=["筆畫數", "執行醫生"]).reset_index(drop=True)
 
     # 3. 檢查開單醫生是否為心臟科醫師
@@ -180,7 +200,7 @@ if uploaded_file is not None:
         with metric_cols[i]:
             st.markdown(
                 f"""
-                <div style="background-color: #f0f2f6; padding: 20px; border-radius: 10px; text-align: center; box-shadow: 1px 1px 5px rgba(0,0,0,0.1);">
+                <div style="background-color: rgba(240, 242, 246, 0.9); padding: 20px; border-radius: 10px; text-align: center; border: 1px solid #ddd;">
                     <h2 style="margin: 0; color: #31333F;">👨‍⚕️ {doc}</h2>
                     <h2 style="margin: 10px 0 0 0; color: #0068c9;">{count} 人次</h2>
                 </div>
@@ -206,7 +226,7 @@ if uploaded_file is not None:
     def render_custom_table(df_data):
         html = '<div style="overflow-x: auto;">'
         html += '<style>'
-        html += '.report-table { width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 14px; }'
+        html += '.report-table { width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 14px; background-color: white; }'
         html += '.report-table th, .report-table td { border: 1px solid #ddd; padding: 8px 12px; text-align: center; }'
         html += '.report-table th { background-color: #f0f2f6; color: #31333F; }'
         html += '.red-text { color: red; font-weight: bold; }'
@@ -233,24 +253,14 @@ if uploaded_file is not None:
 
     st.markdown(render_custom_table(processed_df), unsafe_allow_html=True)
 
-
     # ==========================================
-    # 7. 匯出下載功能 (純淨報表，不含統計數量)
+    # 7. 匯出下載功能
     # ==========================================
     st.markdown("---")
     st.markdown("### 💾 匯出處理後報表")
 
     export_df = processed_df[
-        [
-            "診別",
-            "病例號",
-            "姓名",
-            "性別",
-            "執行日期",
-            "開單日期",
-            "開單醫生",
-            "執行醫生",
-        ]
+        ["診別", "病例號", "姓名", "性別", "執行日期", "開單日期", "開單醫生", "執行醫生"]
     ].copy()
 
     def to_excel(df_to_save):
@@ -289,10 +299,7 @@ if uploaded_file is not None:
         label="📥 下載處理完成的 Excel 報表",
         data=excel_data,
         file_name="processed_schedule_report.xlsx",
-        mime=(
-            "application/vnd.openxmlformats-officedocument.spreadsheetml"
-            ".spreadsheetml.sheet"
-        ),
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
   except Exception as e:
