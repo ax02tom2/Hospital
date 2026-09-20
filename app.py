@@ -1,4 +1,5 @@
 import io
+import re
 import pandas as pd
 import streamlit as st
 
@@ -34,11 +35,14 @@ uploaded_file = st.file_uploader(
 
 if uploaded_file is not None:
   try:
-    # 讀取 Excel 檔案
+    # 讀取 Excel 檔案：加上 dtype=str 強制以純文字讀取，保留病歷號前面所有的 0
     if uploaded_file.name.endswith(".xls"):
-      df = pd.read_excel(uploaded_file, engine="xlrd")
+      df = pd.read_excel(uploaded_file, engine="xlrd", dtype=str)
     else:
-      df = pd.read_excel(uploaded_file)
+      df = pd.read_excel(uploaded_file, dtype=str)
+
+    # 將空值補為空字串，避免出現 nan
+    df = df.fillna("")
 
     st.success(
         f"✅ 成功載入檔案：**{uploaded_file.name}** (共 {len(df)} 筆資料)"
@@ -71,18 +75,19 @@ if uploaded_file is not None:
       else:
         processed_df[col_name] = "未提供"
 
-    # 2. 執行醫生排序 (改用內建字串排序，免裝 pypinyin 套件避免雲端錯誤)
+    # 2. 執行醫生排序 (改用內建字串排序，免裝 pypinyin 套件)
     processed_df = processed_df.sort_values(by="執行醫生").reset_index(drop=True)
 
     # 3. 檢查開單醫生是否為心臟科醫師
-    processed_df["是否心臟科"] = processed_df["開單醫生"].isin(
-        cardio_doctors
-    )
+    processed_df["是否心臟科"] = processed_df["開單醫生"].isin(cardio_doctors)
     
     # 4. 處理「執行日期」去掉年份 (例如：2026/09/19 變成 09/19)
     def remove_year(date_str):
         date_str = str(date_str).strip()
-        # 如果長度夠且包含斜線 (如 2026/09/19) 取第5個字元之後
+        # 避免純文字讀取時帶有時間 (如 2026-09-19 00:00:00)，先截取日期部分
+        if " " in date_str:
+            date_str = date_str.split(" ")[0]
+        # 移除年份
         if len(date_str) >= 8 and (date_str[4] == "/" or date_str[4] == "-"):
             return date_str[5:]
         return date_str
@@ -93,10 +98,10 @@ if uploaded_file is not None:
     st.markdown("### 📊 處理後的排程報表預覽")
     st.markdown(
         "> 💡 **說明**：\n"
-        "> - **執行醫生**已自動完成排序。\n"
-        "> - 若開單醫生**不是心臟科醫師**，會加上 `⚠️ 非心臟科` 顯著標記。\n"
-        "> - 診別中若**沒有包含「門」字**，則以 **紅色字體** 顯示。\n"
-        "> - **執行日期** 已隱藏年份，並統一以 **紅色字體** 顯示。"
+        "> - **病歷號** 已完整保留包含 `0` 開頭的所有數字。\n"
+        "> - 診別若包含**「門」**字則顯示黑色；若為**無意義的英文/數字組合**，則以 **紅色字體** 顯示。\n"
+        "> - **執行日期** 已隱藏年份，並統一以 **紅色字體** 顯示。\n"
+        "> - 若開單醫生**不是心臟科醫師**，會加上 `⚠️ 非心臟科` 顯著標記。"
     )
 
     # 自訂 HTML 表格渲染
@@ -136,7 +141,7 @@ if uploaded_file is not None:
                     <tr>
                         <th>項次</th>
                         <th>診別</th>
-                        <th>病例號</th>
+                        <th>病歷號</th>
                         <th>姓名</th>
                         <th>性別</th>
                         <th>執行日期</th>
@@ -149,7 +154,7 @@ if uploaded_file is not None:
             """
 
       for idx, row in df_data.iterrows():
-        # --- 診別邏輯：如果有「門」字就正常黑字，否則紅字 ---
+        # --- 診別邏輯：如果有「門」字就黑字，其他無意義數字/英文變紅字 ---
         zbie_val = str(row['診別'])
         if "門" in zbie_val:
             zbie_class = ""
@@ -161,9 +166,6 @@ if uploaded_file is not None:
         if not row["是否心臟科"]:
           doc_display = f"{doc_display} <span class='warning-badge'>⚠️ 非心臟科需更改</span>"
 
-        # --- 執行日期紅字 ---
-        exec_date_class = "red-text"
-
         html += f"""
                 <tr>
                     <td>{idx + 1}</td>
@@ -171,7 +173,7 @@ if uploaded_file is not None:
                     <td>{row['病例號']}</td>
                     <td>{row['姓名']}</td>
                     <td>{row['性別']}</td>
-                    <td class="{exec_date_class}">{row['執行日期']}</td>
+                    <td class="red-text">{row['執行日期']}</td>
                     <td>{row['開單日期']}</td>
                     <td>{doc_display}</td>
                     <td><b>{row['執行醫生']}</b></td>
