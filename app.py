@@ -1,5 +1,7 @@
 import io
 import re
+import os
+import json
 import pandas as pd
 import streamlit as st
 
@@ -13,22 +15,58 @@ st.write(
     "請上傳您的排程報表 Excel 檔案（支援 .xls / .xlsx），系統將自動過濾欄位、依照筆畫排序執行醫師、檢查門診/床號與心臟科醫師，並提供數量統計。"
 )
 
+# --- 醫師名單記憶功能 ---
+DOCTORS_FILE = "doctors_list.json"
+DEFAULT_DOCTORS = ["謝尚勳", "鄭品容", "王士鴻", "尹玉聰", "蔡榮庭", "柯子翔", "鍾禎智", "劉如濟"]
+
+def load_doctors():
+    """從檔案讀取醫師名單，若檔案不存在則回傳預設名單"""
+    if os.path.exists(DOCTORS_FILE):
+        try:
+            with open(DOCTORS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return DEFAULT_DOCTORS
+
+def save_doctors(doctors_list):
+    """將醫師名單存入檔案"""
+    with open(DOCTORS_FILE, "w", encoding="utf-8") as f:
+        json.dump(doctors_list, f, ensure_ascii=False)
+
+# 初始化 session state
+if "cardio_doctors" not in st.session_state:
+    st.session_state.cardio_doctors = load_doctors()
+
 # 側邊欄設定心臟科醫師名單
 st.sidebar.header("⚙️ 檢核設定")
 st.sidebar.subheader("❤️ 心臟科醫師名單設定")
-default_cardio_doctors = "謝尚勳 鄭品容 王士鴻 尹玉聰 蔡榮庭 柯子翔 鍾禎智 劉如濟"
-cardio_doctors_input = st.sidebar.text_area(
+
+# 顯示目前的醫師名單字串
+current_doctors_str = " ".join(st.session_state.cardio_doctors)
+edited_doctors_str = st.sidebar.text_area(
     "請輸入心臟科醫師姓名（可用空格、逗號或換行分隔）",
-    value=default_cardio_doctors,
-    help="系統會以此名單檢查開單醫生是否為心臟科醫師，若否則會以紅色字體標示。",
+    value=current_doctors_str,
+    help="系統會以此名單檢查開單醫生是否為心臟科醫師。修改後請點選下方按鈕儲存。",
 )
 
-# 支援以空格、逗號或換行來切割醫師名單
-cardio_doctors = [
-    d.strip()
-    for d in re.split(r'[,\s]+', cardio_doctors_input)
-    if d.strip()
-]
+if st.sidebar.button("💾 儲存醫師名單"):
+    # 解析使用者輸入的字串，支援逗號、換行與空格
+    new_list = [d.strip() for d in re.split(r'[,\s]+', edited_doctors_str) if d.strip()]
+    
+    # 去除重複的名字並保持原順序
+    seen = set()
+    new_list_unique = [x for x in new_list if not (x in seen or seen.add(x))]
+    
+    # 更新系統狀態並存檔
+    st.session_state.cardio_doctors = new_list_unique
+    save_doctors(new_list_unique)
+    st.sidebar.success("✅ 名單已成功儲存！下次開啟將自動載入。")
+
+# 正式提供比對的醫師名單
+cardio_doctors = st.session_state.cardio_doctors
+
+st.sidebar.markdown("---")
 
 # 檔案上傳區塊
 uploaded_file = st.file_uploader(
@@ -101,7 +139,7 @@ if uploaded_file is not None:
         "> - **病歷號** 已完整保留包含 `0` 開頭的所有數字。\n"
         "> - 診別若包含**「門」**字則顯示黑色；否則以 **紅色字體** 顯示。\n"
         "> - **執行日期** 已隱藏年份，並統一以 **紅色字體** 顯示。\n"
-        "> - 若開單醫生**不是心臟科醫師**，姓名會以 **紅色字體** 顯示並加上警示。"
+        "> - 若開單醫生**不在左側儲存的心臟科醫師名單內**，姓名會以 **紅色字體** 顯示並加上警示。"
     )
 
     # 自訂 HTML 表格渲染
